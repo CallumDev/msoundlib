@@ -1,0 +1,2 @@
+# msoundlib
+C audio library
