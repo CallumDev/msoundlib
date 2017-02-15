@@ -1,0 +1,176 @@
+#!/bin/sh
+EXTRA_OPTIONS="-std=gnu99 -O2 -D_DEBUG"
+SOURCES="src/soundmanager.c \
+src/loaders/detection.c \
+src/loaders/oggloader.c \
+src/loaders/riffloader.c \
+src/loaders/mp3loader.c \
+src/loaders/flacloader.c \
+src/uintstack.c src/stream.c \
+src/streaming_sound.c \
+src/mystdlib.c \
+src/sound.c"
+
+mkdir -p bin
+# Compile libmpg123 ourselves on mac
+function osx_deps {
+	if [ ! -d "deps/mpg123_svn" ]; then
+		echo Fetching mpg123 from upstream svn
+		mkdir -p deps/mpg123_svn
+		cd deps/mpg123_svn
+		svn co svn://scm.orgis.org/mpg123/trunk
+		cd ../..
+	fi
+	echo Checking mpg123 updates
+	cd deps/mpg123_svn/trunk
+	svn up
+	if [ -f "../built/revision" ]; then
+		CURRENT_BUILD=$(cat "../built/revision")
+		echo Currently built mpg123 version: $CURRENT_BUILD
+	fi
+	SVN_REVISION=$(svn info | grep "Revision" | awk '{print $2}') 
+	if [ "$CURRENT_BUILD" == "$SVN_REVISION" ]; then
+		echo mpg123 current - no need to rebuild
+	else
+		echo mpg123 requires update - rebuilding
+		autoreconf -iv
+		./configure --prefix="$PWD/../built" --enable-static=yes --enable-shared=no
+		make
+		make install
+		echo $SVN_REVISION > "../built/revision"
+	fi
+	cd ../../..
+}
+
+# Get build dependencies on windows
+dl_file() {
+	if hash wget 2>/dev/null; then
+		wget -O "$2" "$1"
+	else
+		echo "Downloading $1 using powershell"
+		echo "Install wget for a more detailed output"
+		echo "\$WebClient = New-Object System.Net.WebClient; \$WebClient.DownloadFile(\"$1\",\"$2\"); exit" | powershell -Command -
+	fi
+}
+
+do_unzip() {
+	if hash unzip 2>/dev/null; then
+		unzip "$1"
+	else
+		CYG_PWD=$(cygpath --windows "$PWD")
+		echo "Unzipping using powershell"
+		echo "This is a very hacky solution, please install unzip at your earliest convenience"
+		echo "\$shell = new-object -com shell.application; \$zip = \$shell.NameSpace(\"$CYG_PWD\\$1\"); foreach(\$item in \$zip.items()) { \$shell.NameSpace(\"$CYG_PWD\").copyhere(\$item); }; exit" | powershell -Command -
+	fi
+}
+function win_deps {
+	mkdir -p deps
+	mkdir -p ./bin/x86
+	mkdir -p ./bin/x64
+	
+	if hash x86_64-w64-mingw32-gcc 2>/dev/null; then
+		echo x86_64 compiler available!
+	else
+		echo x86_64 compiler not available!
+		echo Please install mingw64-x86_64-gcc-core
+		exit 2
+	fi
+	if hash i686-w64-mingw32-gcc 2>/dev/null; then
+		echo i686 compiler available!
+	else
+		echo i686 compiler not available!
+		echo Please install mingw64-i686-gcc-core
+		exit 2
+	fi
+	if [ ! -d "./deps/openal-soft-1.17.2-bin" ]; then
+		cd deps
+		echo OpenAL-Soft not present, downloading
+		dl_file "http://kcat.strangesoft.net/openal-binaries/openal-soft-1.17.2-bin.zip" "openal-soft.zip"
+		do_unzip openal-soft.zip
+		cd ..
+	fi
+	if [ ! -d "./deps/mpg123-1.23.8-x86-64" ]; then
+		cd deps
+		echo Mpg123-x86_64 not present, downloading
+		dl_file "https://www.mpg123.de/download/win64/mpg123-1.23.8-x86-64.zip" "mpg123-x86_64.zip"
+		do_unzip mpg123-x86_64.zip
+		cd ..
+	fi
+	if [ ! -d "./deps/mpg123-1.23.8-x86" ]; then
+		cd deps
+		echo Mpg123-x86 not present, downloading
+		dl_file "https://www.mpg123.de/download/win32/mpg123-1.23.8-x86.zip" "mpg123-x86.zip"
+		do_unzip mpg123-x86.zip
+		cd ..
+	fi
+	OPENAL_32="-I$PWD/deps/openal-soft-1.17.2-bin/include -L$PWD/deps/openal-soft-1.17.2-bin/bin/Win32 -lsoft_oal"
+	MPG123_32="-I$PWD/deps/mpg123-1.23.8-x86 -L$PWD/deps/mpg123-1.23.8-x86 -llibmpg123-0"
+	
+	OPENAL_64="-I$PWD/deps/openal-soft-1.17.2-bin/include -L$PWD/deps/openal-soft-1.17.2-bin/bin/Win64 -lsoft_oal"
+	MPG123_64="-I$PWD/deps/mpg123-1.23.8-x86-64 -L$PWD/deps/mpg123-1.23.8-x86-64 -llibmpg123-0"
+	
+	cp ./deps/mpg123-1.23.8-x86-64/libmpg123-0.dll ./bin/x64/libmpg123-0.dll
+	cp ./deps/openal-soft-1.17.2-bin/bin/Win64/soft_oal.dll ./bin/x64/openal32.dll
+	
+	cp ./deps/mpg123-1.23.8-x86/libmpg123-0.dll ./bin/x86/libmpg123-0.dll
+	cp ./deps/openal-soft-1.17.2-bin/bin/Win32/soft_oal.dll ./bin/x86/openal32.dll
+}
+
+function linux_deps {
+	MPG123=$(pkg-config --cflags --libs libmpg123)
+	if [ -z "$MPG123" ]; then
+		echo Please install your mpg123/libmpg123 development package
+		exit 2
+	fi
+	OPENAL=$(pkg-config --cflags --libs openal)
+	if [ -z "$CC" ]; then
+		CC=gcc
+	fi
+	INCLUDES="$MPG123 $OPENAL"
+}
+
+# The compile function
+do_compile() {
+	mkdir -p bin
+	(set -x; $CC -shared $EXTRA_OPTIONS -I./include -o "$OUTFILE" $INCLUDES $SOURCES)
+}
+
+# OS-specific
+OS="`uname`"
+case $OS in
+  'Linux')
+    OS='Linux'
+    OUTFILE=bin/libmsoundlib.so
+	EXTRA_OPTIONS="-fPIC EXTRA_OPTIONS"
+    linux_deps
+	do_compile
+    ;;
+  'CYGWIN_NT-6.1')
+    OS='Windows'
+	win_deps
+	echo 32-bit compile
+	CC=i686-w64-mingw32-gcc
+	OUTFILE=bin/x86/libmsoundlib.dll
+	INCLUDES="$MPG123_32 $OPENAL_32"
+	do_compile
+	echo 64-bit compile
+	CC=x86_64-w64-mingw32-gcc
+    OUTFILE=bin/x64/libmsoundlib.dll
+    INCLUDES="$MPG123_64 $OPENAL_64"
+	do_compile
+    ;;
+  'Darwin') 
+    OS='Mac'
+    OUTFILE=bin/libmsoundlib.dylib
+    if [ -z "$CC" ]; then
+		CC=clang
+	fi
+    osx_deps
+    INCLUDES="-pthread -framework OpenAL -I$PWD/deps/mpg123_svn/built/include $PWD/deps/mpg123_svn/built/lib/libmpg123.a"
+	do_compile
+    ;;
+  *) 
+	echo Unknown platform $OS
+	exit 2
+  ;;
+esac

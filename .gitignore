@@ -1,0 +1,28 @@
+# Folders
+[Dd]eps/
+[Bb]in/
+
+# Gedit
+*~
+
+# OSX files
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.vsp
+/src/UpgradeLog.htm
+/src/LibreLancer.VC.VC.opendb
+*.db
