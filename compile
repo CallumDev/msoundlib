@@ -123,6 +123,10 @@ function linux_deps {
 		exit 2
 	fi
 	OPENAL=$(pkg-config --cflags --libs openal)
+	if [ -z "$OPENAL" ]; then
+		ehco Please install your libopenal development package
+		exit 2
+	fi
 	if [ -z "$CC" ]; then
 		CC=gcc
 	fi
@@ -141,7 +145,7 @@ case $OS in
   'Linux')
     OS='Linux'
     OUTFILE=bin/libmsoundlib.so
-	EXTRA_OPTIONS="-fPIC EXTRA_OPTIONS"
+	EXTRA_OPTIONS="-fPIC $EXTRA_OPTIONS"
     linux_deps
 	do_compile
     ;;
